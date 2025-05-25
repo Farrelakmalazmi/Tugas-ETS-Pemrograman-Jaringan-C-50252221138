@@ -7,8 +7,8 @@ import sys
 from tqdm import tqdm  # pastikan sudah install tqdm dengan `pip install tqdm`
 
 SERVER_HOST = '172.16.16.101'  # Ganti sesuai IP server sebenarnya
-SERVER_PORT = 8985
-BUFFER_SIZE = 16384  # 16 KB buffer
+SERVER_PORT = 8995
+BUFFER_SIZE = 1048576   # 16 KB buffer
 CLIENT_DIR = 'client_files'
 DOWNLOAD_DIR = 'client_downloads'
 
