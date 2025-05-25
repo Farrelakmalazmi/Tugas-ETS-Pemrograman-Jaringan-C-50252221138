@@ -7,7 +7,7 @@ import threading
 import time
 
 SERVER_HOST = '0.0.0.0'
-SERVER_PORT = 1231
+SERVER_PORT = 8995
 BUFFER_SIZE = 1048576
 FILES_DIR = 'server_files'
 SOCKET_TIMEOUT = 1000  # timeout 60 detik
