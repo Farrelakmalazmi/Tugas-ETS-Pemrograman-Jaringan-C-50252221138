@@ -7,14 +7,14 @@ import threading
 import time
 
 SERVER_HOST = '0.0.0.0'
-SERVER_PORT = 8889
-BUFFER_SIZE = 1024
+SERVER_PORT = 8985
+BUFFER_SIZE = 16384  # 16 KB buffer lebih optimal
 FILES_DIR = 'server_files'
+SOCKET_TIMEOUT = 60  # timeout 60 detik
 
 if not os.path.exists(FILES_DIR):
     os.makedirs(FILES_DIR)
 
-# Variabel global untuk tracking sukses/gagal worker
 success_count = 0
 fail_count = 0
 lock = threading.Lock()
@@ -22,12 +22,16 @@ lock = threading.Lock()
 def handle_client(conn, addr):
     global success_count, fail_count
     print(f"[+] Menangani koneksi dari {addr}")
+
     try:
+        conn.settimeout(SOCKET_TIMEOUT)
+        # Disable Nagle's algorithm agar data langsung dikirim tanpa delay
+        conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+
         data = conn.recv(BUFFER_SIZE).decode()
         if not data:
             with lock:
                 fail_count += 1
-            conn.close()
             return
 
         parts = data.strip().split()
@@ -91,14 +95,21 @@ def handle_client(conn, addr):
                     fail_count += 1
                 return
 
-            with open(filepath, 'rb') as f:
-                file_data = f.read()
-                encoded = base64.b64encode(file_data)
-                for i in range(0, len(encoded), BUFFER_SIZE):
-                    conn.send(encoded[i:i+BUFFER_SIZE])
+            try:
+                with open(filepath, 'rb') as f:
+                    while True:
+                        chunk = f.read(BUFFER_SIZE)
+                        if not chunk:
+                            break
+                        encoded_chunk = base64.b64encode(chunk)
+                        conn.sendall(encoded_chunk)
                 conn.send(b'__END__')
-            with lock:
-                success_count += 1
+                with lock:
+                    success_count += 1
+            except Exception as e:
+                conn.send(f'Error during download: {str(e)}'.encode())
+                with lock:
+                    fail_count += 1
 
         else:
             conn.send(b'Unknown command')
