@@ -4,10 +4,11 @@ import base64
 import concurrent.futures
 import time
 import sys
+from tqdm import tqdm  # pastikan sudah install tqdm dengan `pip install tqdm`
 
 SERVER_HOST = '172.16.16.101'  # Ganti sesuai IP server sebenarnya
-SERVER_PORT = 8889
-BUFFER_SIZE = 1024
+SERVER_PORT = 8985
+BUFFER_SIZE = 16384  # 16 KB buffer
 CLIENT_DIR = 'client_files'
 DOWNLOAD_DIR = 'client_downloads'
 
@@ -27,22 +28,16 @@ def upload_file(filename):
             if response != b'READY':
                 return False, f"Server not ready: {response.decode()}"
 
-            with open(filepath, 'rb') as f:
-                file_data = f.read()
-
-            encoded = base64.b64encode(file_data)
-            total_len = len(encoded)
-            sent_bytes = 0
-
-            for i in range(0, total_len, BUFFER_SIZE):
-                chunk = encoded[i:i+BUFFER_SIZE]
-                s.send(chunk)
-                sent_bytes += len(chunk)
-                percent = sent_bytes / total_len * 100
-                print(f'\rUploading... {percent:.2f}%', end='', flush=True)
+            with open(filepath, 'rb') as f, tqdm(total=filesize, unit='B', unit_scale=True, desc=f'Upload {filename}', leave=False) as pbar:
+                while True:
+                    chunk = f.read(BUFFER_SIZE)
+                    if not chunk:
+                        break
+                    encoded_chunk = base64.b64encode(chunk)
+                    s.send(encoded_chunk)
+                    pbar.update(len(chunk))
 
             s.send(b'__END__')
-            print()  # newline setelah progress bar
 
             result = s.recv(BUFFER_SIZE).decode()
             return True, result
@@ -56,17 +51,16 @@ def download_file(filename):
             s.send(f'DOWNLOAD {filename}'.encode())
 
             data = b''
-            total_received = 0
-            while True:
-                part = s.recv(BUFFER_SIZE)
-                if b'__END__' in part:
-                    data += part.replace(b'__END__', b'')
-                    break
-                data += part
-                total_received += len(part)
-                print(f'\rDownloading... {total_received / 1024:.2f} KB received', end='', flush=True)
-
-            print()  # newline setelah progress info
+            filesize = None  # kalau bisa dapat info filesize, tapi di protokol ini belum ada
+            with tqdm(unit='B', unit_scale=True, desc=f'Download {filename}', leave=False) as pbar:
+                while True:
+                    part = s.recv(BUFFER_SIZE)
+                    if b'__END__' in part:
+                        data += part.replace(b'__END__', b'')
+                        pbar.update(len(part) - len(b'__END__'))
+                        break
+                    data += part
+                    pbar.update(len(part))
 
             decoded = base64.b64decode(data)
             with open(os.path.join(DOWNLOAD_DIR, filename), 'wb') as f:
@@ -153,7 +147,6 @@ def main():
     print(f"Average throughput: {avg_throughput:.2f} B/s")
     print(f"Success count     : {success_count}")
     print(f"Fail count        : {fail_count}")
-
 
 if __name__ == '__main__':
     main()
