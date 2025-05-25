@@ -7,9 +7,10 @@ import sys
 import time
 
 SERVER_HOST = '0.0.0.0'
-SERVER_PORT = 8889
-BUFFER_SIZE = 1024
+SERVER_PORT = 8989
+BUFFER_SIZE = 16384  # naik ke 16 KB untuk efisiensi
 FILES_DIR = 'server_files'
+SOCKET_TIMEOUT = 60  # timeout socket
 
 if not os.path.exists(FILES_DIR):
     os.makedirs(FILES_DIR)
@@ -38,6 +39,10 @@ def process_task(command, args):
             filepath = os.path.join(FILES_DIR, filename)
             if not os.path.exists(filepath):
                 return b'File not found'
+
+            # Untuk proses download besar, proses_task hanya baca dan encode seluruh file,
+            # karena multiprocessing tidak bisa streaming langsung ke socket di thread utama.
+            # Namun file ini tidak terlalu besar (tergantung), alternatif optimasi bisa dibuat di handle_client.
             with open(filepath, 'rb') as f:
                 file_data = f.read()
             encoded_data = base64.b64encode(file_data)
@@ -59,12 +64,15 @@ def print_status_periodically():
 def handle_client(conn, addr, pool):
     global success_count, fail_count
     print(f"[+] Menangani koneksi dari {addr}")
+
     try:
+        conn.settimeout(SOCKET_TIMEOUT)
+        conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+
         data = conn.recv(BUFFER_SIZE).decode()
         if not data:
             with lock:
                 fail_count += 1
-            conn.close()
             return
 
         parts = data.strip().split()
@@ -79,7 +87,7 @@ def handle_client(conn, addr, pool):
         if command == 'LIST':
             future = pool.submit(process_task, 'LIST', None)
             result = future.result()
-            conn.send(result)
+            conn.sendall(result)
             with lock:
                 success_count += 1
 
@@ -91,6 +99,7 @@ def handle_client(conn, addr, pool):
                 return
             filename = parts[1]
             conn.send(b'READY')
+
             received = b''
             while True:
                 chunk = conn.recv(BUFFER_SIZE)
@@ -101,9 +110,8 @@ def handle_client(conn, addr, pool):
 
             future = pool.submit(process_task, 'UPLOAD', (filename, received))
             result = future.result()
-            conn.send(result)
+            conn.sendall(result)
 
-            # Cek hasil upload apakah berhasil
             if b'successful' in result.lower():
                 with lock:
                     success_count += 1
@@ -118,18 +126,20 @@ def handle_client(conn, addr, pool):
                     fail_count += 1
                 return
             filename = parts[1]
+
+            # Submit ke process pool untuk dapatkan seluruh file yang sudah base64 encoded
             future = pool.submit(process_task, 'DOWNLOAD', filename)
             result = future.result()
 
-            # Jika file not found
             if b'file not found' in result.lower():
-                conn.send(result)
+                conn.sendall(result)
                 with lock:
                     fail_count += 1
                 return
 
+            # Kirim data hasil base64 encoded secara streaming chunk
             for i in range(0, len(result), BUFFER_SIZE):
-                conn.send(result[i:i+BUFFER_SIZE])
+                conn.sendall(result[i:i+BUFFER_SIZE])
             with lock:
                 success_count += 1
 
