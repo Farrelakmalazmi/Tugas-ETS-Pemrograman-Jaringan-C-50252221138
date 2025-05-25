@@ -7,10 +7,10 @@ import threading
 import time
 
 SERVER_HOST = '0.0.0.0'
-SERVER_PORT = 8985
-BUFFER_SIZE = 16384  # 16 KB buffer lebih optimal
+SERVER_PORT = 1231
+BUFFER_SIZE = 1048576
 FILES_DIR = 'server_files'
-SOCKET_TIMEOUT = 60  # timeout 60 detik
+SOCKET_TIMEOUT = 1000  # timeout 60 detik
 
 if not os.path.exists(FILES_DIR):
     os.makedirs(FILES_DIR)
